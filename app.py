@@ -322,60 +322,105 @@ with tab1:
 
 with tab2:
     # ╔══════════════════════════════════════════════════════════════════════════╗
-    # ║  BLOCK F — Tab 2: Trends Over Time                                      ║
+    # ║  BLOCK F — Tab 2: Trends Over Time  (v4)                                ║
     # ╚══════════════════════════════════════════════════════════════════════════╝
     
-    st.markdown('<p class="stab-title">Are cases getting resolved faster over time?</p>',
+    st.markdown('<p class="stab-title">How has resolution time changed across filing years?</p>',
                 unsafe_allow_html=True)
-    st.markdown(
-        '<p class="stab-sub">Each bar represents one filing-year cohort. '
-        'We measure what share was resolved within a fixed time window — '
-        'the only fair comparison across years.</p>',
-        unsafe_allow_html=True)
     
-    st.markdown("""<div class="warn">
-    ⚠️ <strong>Survivorship caveat — important before reading these charts:</strong>
-    Cases filed in 2019 had only ~2 years to be resolved before this data was collected (Jan 2021).
-    Slow 2019 cases were still pending and are absent from this dataset, making the 2019
-    cohort look faster partly by selection. Earlier cohorts (2015, 2016) had 5–6 years to
-    accumulate resolved cases and are more complete. Treat the trend direction as plausible;
-    treat the 2019 magnitude as a <strong>lower-bound estimate only</strong>.
+    st.markdown("""<div class="caveat">
+    📋 <strong>What this data covers:</strong>
+    All figures are based on resolved cases only — cases still pending in January 2021
+    are not in this dataset. Cohort sizes and observation windows vary by year and are
+    shown on each chart.
     </div>""", unsafe_allow_html=True)
     
-    # Chart F1 — % within 1 year per cohort
-    fig_1yr = go.Figure()
-    fig_1yr.add_trace(go.Bar(
-        x=cf['filing_year'].astype(str), y=cf['pct_within_1yr'],
-        marker_color=TEAL,
-        text=cf['pct_within_1yr'].apply(lambda x: f"{x}%"),
-        textposition='outside',
-        hovertemplate='Filed %{x}<br>%{y}% resolved within 1 year<br><i>(of cases in this dataset)</i><extra></extra>'
+    # ── Build cohort-level speed breakdown ────────────────────────────────────────
+    tier_order = [
+        "Fast (under 1 year)", "Medium (1–2 years)",
+        "Slow (2–3 years)",    "Very Slow (3+ years)"
+    ]
+    obs_windows = {2015: 2200, 2016: 1835, 2017: 1469, 2018: 1104, 2019: 739}
+    
+    cohort_tiers = (
+        dff.groupby(['filing_year', 'speed_tier'])
+        .size().reset_index(name='count')
+    )
+    totals = dff.groupby('filing_year').size().reset_index(name='total')
+    cohort_tiers = cohort_tiers.merge(totals, on='filing_year')
+    cohort_tiers['pct'] = (100 * cohort_tiers['count'] / cohort_tiers['total']).round(1)
+    cohort_tiers['speed_tier'] = pd.Categorical(
+        cohort_tiers['speed_tier'], categories=tier_order, ordered=True
+    )
+    cohort_tiers = cohort_tiers.sort_values(['filing_year', 'speed_tier'])
+    
+    # ── Chart F1: Stacked distribution ────────────────────────────────────────────
+    st.markdown("#### How are resolved cases distributed across speed categories?")
+    
+    fig_stack = px.bar(
+        cohort_tiers,
+        x='filing_year', y='pct',
+        color='speed_tier',
+        color_discrete_map=SPEED_COLORS,
+        barmode='stack',
+        text=cohort_tiers['pct'].apply(lambda x: f"{x}%" if x >= 7 else ""),
+        labels={
+            'filing_year': 'Filing Year',
+            'pct':         '% of Resolved Cases',
+            'speed_tier':  'Speed'
+        },
+        title="Speed Breakdown of Resolved Cases by Filing Year",
+        category_orders={'speed_tier': tier_order}
+    )
+    fig_stack.update_traces(textposition='inside', insidetextanchor='middle', textfont_size=11)
+    
+    # Observation window + n as annotation above each bar
+    for yr, window in obs_windows.items():
+        yr_data = totals[totals['filing_year'] == yr]
+        if not yr_data.empty:
+            n = int(yr_data['total'].values[0])
+            fig_stack.add_annotation(
+                x=yr, y=104,
+                text=f"n={n:,} · {window}d window",
+                showarrow=False,
+                font=dict(size=9, color='#888'),
+                align='center'
+            )
+    
+    fig_stack.update_layout(**chart_layout(
+        height=480, showlegend=True,
+        xaxis_title="Filing Year",
+        yaxis_title="% of Resolved Cases",
+        legend_title="Speed",
+        legend=dict(orientation='h', yanchor='bottom', y=1.08, xanchor='right', x=1),
+        xaxis=dict(tickmode='linear', dtick=1),
+        yaxis_range=[0, 116],
+        margin=dict(l=20, r=20, t=105, b=25)
     ))
-    fig_1yr.update_layout(**chart_layout(
-        height=400,
-        title="% of Each Year's Cases Resolved Within 1 Year",
-        xaxis_title="Year Case Was Filed",
-        yaxis_title="% Resolved Within 1 Year",
-        yaxis_range=[0, min(cf['pct_within_1yr'].max() * 1.3, 100)],
-        margin=dict(l=20, r=20, t=60, b=25)
-    ))
-    fig_1yr.update_xaxes(showgrid=False)
-    fig_1yr.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
-    st.plotly_chart(fig_1yr, width='stretch')
+    fig_stack.update_xaxes(showgrid=False)
+    fig_stack.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
+    st.plotly_chart(fig_stack, width='stretch')
+    
+    st.markdown("""<div class="insight">
+    📌 The Fast (under 1 year) share rises from 22.7% in 2015 to 59.4% in 2019.
+    The Very Slow (3+ years) share falls from 31.0% in 2015 to near-zero in 2018–2019.
+    The Medium (1–2 years) share is the most consistent across years, ranging 29–52%.
+    </div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Chart F2 — Median days with p25–p75 band
+    # ── Chart F2: Median + IQR trend ──────────────────────────────────────────────
+    st.markdown("#### How did median resolution time and spread change?")
+    
     fig_med = go.Figure()
-    # Shaded band: p25–p75
     fig_med.add_trace(go.Scatter(
         x=list(cf['filing_year'].astype(str)) + list(cf['filing_year'].astype(str))[::-1],
         y=list(cf['p75_days']) + list(cf['p25_days'])[::-1],
         fill='toself', fillcolor='rgba(244,163,0,0.13)',
         line=dict(color='rgba(0,0,0,0)'),
-        hoverinfo='skip', showlegend=True, name='Middle 50% of cases'
+        hoverinfo='skip', showlegend=True,
+        name='Middle 50% of cases (p25–p75)'
     ))
-    # Median line
     fig_med.add_trace(go.Scatter(
         x=cf['filing_year'].astype(str), y=cf['median_days'],
         mode='lines+markers+text',
@@ -383,44 +428,96 @@ with tab2:
         marker=dict(size=10, color=AMBER, line=dict(color=NAVY, width=2)),
         text=cf['median_days'].apply(lambda x: f"{x}d"),
         textposition='top center', textfont_size=12,
-        hovertemplate='Filed %{x}<br>Median: %{y} days<br><i>(resolved cases only)</i><extra></extra>',
-        showlegend=True, name='Median days'
+        hovertemplate='Filed %{x}<br>Median: %{y} days<extra></extra>',
+        showlegend=True, name='Median'
     ))
+    for _, row in cf.iterrows():
+        fig_med.add_annotation(
+            x=str(int(row['filing_year'])),
+            y=row['p25_days'] - 65,
+            text=f"IQR: {int(row['p75_days'] - row['p25_days'])}d",
+            showarrow=False,
+            font=dict(size=9, color='#aaa'),
+            align='center'
+        )
     fig_med.update_layout(**chart_layout(
-        height=430, showlegend=True,
-        title="Median Days to Resolution by Filing Year — with Middle 50% Range",
-        xaxis_title="Year Case Was Filed",
+        height=440, showlegend=True,
+        title="Median Days to Resolution + Middle 50% Range<br>"
+              "<sup>IQR (interquartile range) shown below each year</sup>",
+        xaxis_title="Filing Year",
         yaxis_title="Days to Resolution",
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        margin=dict(l=20, r=20, t=70, b=25)
+        legend=dict(orientation='h', yanchor='bottom', y=1.03, xanchor='right', x=1),
+        margin=dict(l=20, r=20, t=80, b=25)
     ))
     fig_med.update_xaxes(showgrid=False)
     fig_med.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
     st.plotly_chart(fig_med, width='stretch')
     
     st.markdown("""<div class="insight">
-    📌 <strong>The shaded band</strong> shows the middle 50% of cases (25th–75th percentile).
-    A wider band means more spread — more inconsistency in how long cases within that year
-    took. Earlier cohorts have wider bands partly because they include more resolved cases
-    across the full range of speeds. The trend in median is downward, but interpret
-    2018–2019 with caution given the survivorship issue above.
+    📌 Median falls from 703 days (2015) to 319 days (2019).
+    The IQR — the gap between the fastest and slowest quartile — also narrows:
+    879 days in 2015 down to 346 days in 2019. Later cohorts' resolved cases
+    are not just faster on median — they are more consistently timed.
     </div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Chart F3 — Disposal by calendar year
-    st.markdown("#### In which years were the most cases actually concluded?")
+    # ── Chart F3: Filing vs disposal year heatmap ─────────────────────────────────
+    st.markdown("#### In which years were each cohort's cases actually concluded?")
+    
+    cross = (
+        dff.groupby(['filing_year', 'disposal_year'])
+        .size().reset_index(name='count')
+    )
+    totals_map = dff.groupby('filing_year').size().to_dict()
+    cross['pct'] = cross.apply(
+        lambda r: round(100 * r['count'] / totals_map[r['filing_year']], 1), axis=1
+    )
+    pivot = cross.pivot(
+        index='filing_year', columns='disposal_year', values='pct'
+    ).fillna(0)
+    
+    fig_heat = px.imshow(
+        pivot, aspect='auto',
+        color_continuous_scale=['#f7f9fc', NAVY],
+        text_auto='.1f',
+        labels=dict(
+            x="Year Judgment Was Delivered",
+            y="Year Case Was Filed",
+            color="% of Cohort"
+        ),
+        title="% of Each Filing Year's Cases Resolved in Each Calendar Year<br>"
+              "<sup>Each row sums to 100%</sup>"
+    )
+    fig_heat.update_traces(textfont_size=11)
+    fig_heat.update_layout(**chart_layout(
+        height=360,
+        margin=dict(l=80, r=20, t=75, b=25),
+        coloraxis_colorbar=dict(title="% of cohort")
+    ))
+    st.plotly_chart(fig_heat, width='stretch')
+    
+    st.markdown("""<div class="insight">
+    📌 2015 cases resolved across all six years (2015–2020), with no single year dominant.
+    2018 and 2019 cases resolved heavily in 2019–2020 — the same two years where
+    disposal volumes across all cohorts peak (see chart below).
+    </div>""", unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # ── Chart F4: Disposal volume by calendar year ────────────────────────────────
+    st.markdown("#### How many cases were concluded each calendar year?")
+    
     disp_yr = dff.groupby('disposal_year').size().reset_index(name='count')
     fig_disp = px.bar(
         disp_yr, x='disposal_year', y='count',
-        color_discrete_sequence=[BLUE],
-        text='count',
+        color_discrete_sequence=[BLUE], text='count',
         labels={'disposal_year': 'Year of Judgment', 'count': 'Cases Resolved'},
-        title="Cases Resolved Per Calendar Year (year of final judgment)"
+        title="Cases Resolved Per Calendar Year"
     )
     fig_disp.update_traces(texttemplate='%{text:,}', textposition='outside')
     fig_disp.update_layout(**chart_layout(
-        height=380,
+        height=360,
         xaxis_title="Year of Final Judgment",
         yaxis_title="Cases Resolved",
         yaxis_range=[0, disp_yr['count'].max() * 1.2],
@@ -430,32 +527,36 @@ with tab2:
     fig_disp.update_xaxes(showgrid=False)
     fig_disp.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
     st.plotly_chart(fig_disp, width='stretch')
-    st.caption("Note: The 2021 bar is very low — the data snapshot ends in the first week of January 2021.")
+    st.caption("2021 captures only the first week of January.")
 
     pass
 
 with tab3:
     # ╔══════════════════════════════════════════════════════════════════════════╗
-    # ║  BLOCK G — Tab 3: Court-Level Variation                                 ║
+    # ║  BLOCK G — Tab 3: Court-Level Variation  (v2)                           ║
     # ╚══════════════════════════════════════════════════════════════════════════╝
     
-    st.markdown('<p class="stab-title">One court complex, very different experiences</p>',
+    st.markdown('<p class="stab-title">Variation across court halls</p>',
                 unsafe_allow_html=True)
     st.markdown(
         '<p class="stab-sub">All cases were heard at the Principal Bench, Bengaluru — '
-        'same building, same case type (MFA First Appeals), different court hall numbers. '
-        'The variation across halls is therefore a within-system comparison.</p>',
+        'same building, different court hall numbers. '
+        'MFA is an administrative filing category, not a substantive legal classification. '
+        'Cases under MFA can span motor vehicle compensation, land acquisition, family matters, '
+        'labour disputes, and more. Subject-matter data is unavailable for 98.4% of cases.</p>',
         unsafe_allow_html=True)
     
     st.markdown("""<div class="warn">
-    ⚠️ <strong>Not a ranking or performance scorecard.</strong>
-    Court halls receive different mixes of cases in terms of complexity and parties involved.
-    Judges are transferred; bench composition changes. What we observe is that the
-    <em>range</em> of resolution times within the same court complex is large —
-    a system-level observation, not an accusation against any hall or individual.
+    ⚠️ <strong>What we can and cannot say about court-level variation:</strong>
+    MFA is an administrative entry category — not a measure of legal complexity or subject matter.
+    Different halls may receive different mixes of underlying case types, but we have no
+    subject-matter data for 98.4% of cases to verify or control for this.
+    Judges are also transferred between halls over time.
+    The variation we observe is real in the data — what drives it is not determinable
+    from this dataset alone.
     </div>""", unsafe_allow_html=True)
     
-    # Build court stats — halls with 50+ cases
+    # ── Build court stats ─────────────────────────────────────────────────────────
     cs = (
         dff.groupby('court_number')['disposal_days']
         .agg(
@@ -475,26 +576,24 @@ with tab3:
     ratio = round(vmax / vmin, 1)
     
     st.markdown(f"""<div class="insight">
-    📌 <strong>The headline:</strong>
-    Among {len(cs)} court halls with 50+ resolved cases, the fastest had a median of
+    📌 Among {len(cs)} court halls with 50+ resolved cases, the fastest median was
     <strong>{vmin} days</strong> and the slowest <strong>{vmax} days</strong> —
-    a <strong>{ratio}× difference</strong> for the same case type, same court complex.
+    a <strong>{ratio}× difference</strong>. What drives this variation — case mix,
+    complexity, bench composition, or other factors — is not visible in this dataset.
     </div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Chart G1 — Sorted bar all qualifying halls
+    # ── Chart G1: Sorted bar — all qualifying halls ───────────────────────────────
+    st.markdown("#### Median resolution time by court hall")
+    st.caption(f"Halls with 50+ resolved cases · Sorted fastest → slowest · n={len(cs)} halls")
+    
     fig_bar = px.bar(
         cs, x='court_label', y='median_days',
         color='median_days',
         color_continuous_scale=[TEAL, AMBER, CORAL, '#c0392b'],
         text=cs['median_days'].apply(lambda x: f"{int(x)}d"),
-        labels={'court_label': 'Court Hall', 'median_days': 'Median Days'},
-        title=(
-            "Median Resolution Time by Court Hall<br>"
-            "<sup>Halls with 50+ cases · Sorted fastest → slowest · "
-            "All cases: MFA First Appeals, Principal Bench Bengaluru</sup>"
-        )
+        labels={'court_label': 'Court Hall', 'median_days': 'Median Days'}
     )
     fig_bar.update_traces(textposition='outside', textfont_size=10)
     fig_bar.update_layout(**chart_layout(
@@ -503,7 +602,7 @@ with tab3:
         yaxis_title="Median Days to Resolution",
         xaxis_tickangle=-45,
         yaxis_range=[0, cs['median_days'].max() * 1.2],
-        margin=dict(l=20, r=20, t=90, b=80)
+        margin=dict(l=20, r=20, t=50, b=80)
     ))
     fig_bar.update_xaxes(showgrid=False)
     fig_bar.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
@@ -511,9 +610,10 @@ with tab3:
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Chart G2 — Scatter: caseload vs resolution
-    st.markdown("#### Is a heavier caseload linked to slower resolution?")
-    corr = round(float(np.corrcoef(cs['n_cases'], cs['median_days'])[0,1]), 2)
+    # ── Chart G2: Scatter — caseload vs resolution ────────────────────────────────
+    st.markdown("#### Is caseload associated with resolution time?")
+    
+    corr = round(float(np.corrcoef(cs['n_cases'], cs['median_days'])[0, 1]), 2)
     
     fig_sc = px.scatter(
         cs, x='n_cases', y='median_days',
@@ -522,23 +622,22 @@ with tab3:
         color_continuous_scale=[TEAL, AMBER, CORAL, '#c0392b'],
         hover_name='court_label',
         hover_data={'court_hall': True, 'n_cases': ':.0f', 'median_days': ':.0f'},
-        labels={'n_cases': 'Cases Handled', 'median_days': 'Median Days'},
-        title=(
-            "Caseload vs. Median Resolution Time<br>"
-            "<sup>Each bubble = one court hall · Bubble size ∝ case volume</sup>"
-        )
+        labels={'n_cases': 'Cases Handled', 'median_days': 'Median Days'}
     )
     x_line = np.linspace(cs['n_cases'].min(), cs['n_cases'].max(), 100)
     z = np.polyfit(cs['n_cases'], cs['median_days'], 1)
     fig_sc.add_trace(go.Scatter(
         x=x_line, y=np.polyval(z, x_line),
-        mode='lines', name='Trend',
+        mode='lines', name='Linear trend',
         line=dict(color=NAVY, width=1.5, dash='dot'),
         showlegend=True
     ))
     fig_sc.update_layout(**chart_layout(
         height=460, coloraxis_showscale=False, showlegend=True,
-        xaxis_title='Cases Handled', yaxis_title='Median Days to Resolution',
+        title=f"Caseload vs. Median Resolution Time (Pearson r = {corr})<br>"
+              f"<sup>Each bubble = one court hall · Bubble size ∝ case volume</sup>",
+        xaxis_title='Cases Handled',
+        yaxis_title='Median Days to Resolution',
         legend=dict(x=0.01, y=0.98),
         margin=dict(l=20, r=20, t=80, b=25)
     ))
@@ -546,44 +645,41 @@ with tab3:
     fig_sc.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
     st.plotly_chart(fig_sc, width='stretch')
     
-    if abs(corr) <= 0.15:
-        corr_text = "near zero — caseload alone does not explain resolution speed in this dataset"
-    elif 0.15 < corr <= 0.4:
-        corr_text = "weak positive — halls with more cases tend to take slightly longer, but the relationship is not strong"
-    elif corr > 0.4:
-        corr_text = "moderate positive — higher caseload is associated with longer resolution times"
-    else:
-        corr_text = "negative — larger halls resolved cases faster on median, possibly reflecting specialised benches"
-    
     st.markdown(f"""<div class="insight">
-    📌 <strong>Correlation: {corr}</strong> ({corr_text}).
-    The dotted line is a simple linear trend. Points far above it are halls that
-    are slower than their caseload would suggest; points below are faster.
+    📌 Pearson correlation between caseload and median resolution time: <strong>{corr}</strong>.
+    A linear trend line is shown for reference. Individual halls vary widely around it —
+    caseload volume alone does not explain the spread.
     </div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Chart G3 — Box plot spread by filing year
-    st.markdown("#### How consistent were outcomes within each filing year?")
+    # ── Chart G3: Box plot — spread by filing year ────────────────────────────────
+    st.markdown("#### How wide is the spread of resolution times within each filing year?")
+    
     fig_box = px.box(
         dff, x='filing_year', y='disposal_days',
         color='filing_year',
         color_discrete_sequence=[TEAL, BLUE, AMBER, CORAL, '#c0392b'],
         labels={'disposal_days': 'Days to Resolution', 'filing_year': 'Filing Year'},
-        title=(
-            "Spread of Resolution Times by Filing Year<br>"
-            "<sup>Box = middle 50% · Line = median · Whiskers extend to 1.5× IQR</sup>"
-        ),
+        title="Spread of Resolution Times by Filing Year<br>"
+              "<sup>Box = middle 50% · Line = median · Whiskers = 1.5× IQR</sup>",
         points=False
     )
     fig_box.update_layout(**chart_layout(
         height=430,
-        xaxis_title="Filing Year", yaxis_title="Days to Resolution",
+        xaxis_title="Filing Year",
+        yaxis_title="Days to Resolution",
         margin=dict(l=20, r=20, t=80, b=25)
     ))
     fig_box.update_xaxes(showgrid=False, type='category')
     fig_box.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
     st.plotly_chart(fig_box, width='stretch')
+    
+    st.markdown("""<div class="insight">
+    📌 The box height (IQR) shrinks across years — resolved cases in later cohorts
+    are more tightly clustered in time. Whether that reflects court capacity, case mix
+    shifts, or other factors is not visible in this data.
+    </div>""", unsafe_allow_html=True)
 
     pass
 
