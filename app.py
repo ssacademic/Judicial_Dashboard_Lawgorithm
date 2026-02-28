@@ -103,7 +103,7 @@ with st.sidebar:
     st.markdown("""
 **About this tool**
 
-Built by **Lawgorithm** as a pro bono public interest initiative.
+Built by **Lawgorithm** with thought and care.
 
 Data: NJDG Karnataka HC via ISDM Hackathon (2015–2021)
 
