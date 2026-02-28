@@ -533,28 +533,21 @@ with tab2:
 
 with tab3:
     # ╔══════════════════════════════════════════════════════════════════════════╗
-    # ║  BLOCK G — Tab 3: Court-Level Variation  (v2)                           ║
+    # ║  BLOCK G — Tab 3: Court-Level Variation  (v3)                           ║
     # ╚══════════════════════════════════════════════════════════════════════════╝
     
     st.markdown('<p class="stab-title">Variation across court halls</p>',
                 unsafe_allow_html=True)
     st.markdown(
-        '<p class="stab-sub">All cases were heard at the Principal Bench, Bengaluru — '
-        'same building, different court hall numbers. '
-        'MFA is an administrative filing category, not a substantive legal classification. '
-        'Cases under MFA can span motor vehicle compensation, land acquisition, family matters, '
-        'labour disputes, and more. Subject-matter data is unavailable for 98.4% of cases.</p>',
+        '<p class="stab-sub">'
+        'All 20,646 cases were heard at the Karnataka High Court\'s Principal Bench, Bengaluru, '
+        'distributed across court halls. One hall — Court 200 — handled 40% of all cases in this '
+        'dataset. Resolution times vary widely across halls. MFA covers many different kinds of '
+        'cases (motor vehicle, land, family, labour and more), and subject-matter data is '
+        'unavailable for 98.4% of records, so the reasons behind variation across halls '
+        'are not visible here.'
+        '</p>',
         unsafe_allow_html=True)
-    
-    st.markdown("""<div class="warn">
-    ⚠️ <strong>What we can and cannot say about court-level variation:</strong>
-    MFA is an administrative entry category — not a measure of legal complexity or subject matter.
-    Different halls may receive different mixes of underlying case types, but we have no
-    subject-matter data for 98.4% of cases to verify or control for this.
-    Judges are also transferred between halls over time.
-    The variation we observe is real in the data — what drives it is not determinable
-    from this dataset alone.
-    </div>""", unsafe_allow_html=True)
     
     # ── Build court stats ─────────────────────────────────────────────────────────
     cs = (
@@ -568,50 +561,108 @@ with tab3:
         .reset_index()
     )
     cs.columns = ['court_hall', 'median_days', 'n_cases', 'p25', 'p75']
+    cs_all = cs.copy()   # keep all halls for load chart
     cs = cs[cs['n_cases'] >= 50].sort_values('median_days').reset_index(drop=True)
-    cs['court_label'] = 'Hall ' + cs['court_hall'].astype(int).astype(str)
+    cs['court_label'] = 'Court ' + cs['court_hall'].astype(int).astype(str)
     
     vmin  = int(cs['median_days'].min())
     vmax  = int(cs['median_days'].max())
     ratio = round(vmax / vmin, 1)
+    total_cases = len(dff)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # ── Chart G0: Case load concentration ─────────────────────────────────────────
+    st.markdown("#### How are cases distributed across court halls?")
+    
+    load = cs_all.sort_values('n_cases', ascending=False).copy()
+    load['court_label'] = 'Court ' + load['court_hall'].astype(int).astype(str)
+    load['pct'] = (100 * load['n_cases'] / total_cases).round(1)
+    load['cumulative_pct'] = load['pct'].cumsum().round(1)
+    
+    # Show top 20 + "others"
+    top_n = 20
+    top   = load.head(top_n).copy()
+    rest  = load.iloc[top_n:]
+    if not rest.empty:
+        others = pd.DataFrame([{
+            'court_label': f'Other {len(rest)} halls',
+            'n_cases':     int(rest['n_cases'].sum()),
+            'pct':         round(rest['pct'].sum(), 1),
+            'cumulative_pct': 100.0
+        }])
+        load_display = pd.concat([top, others], ignore_index=True)
+    else:
+        load_display = top
+    
+    fig_load = go.Figure()
+    fig_load.add_trace(go.Bar(
+        x=load_display['court_label'],
+        y=load_display['n_cases'],
+        marker_color=[NAVY if 'Other' not in str(l) else '#ccc'
+                      for l in load_display['court_label']],
+        text=load_display['pct'].apply(lambda x: f"{x}%"),
+        textposition='outside',
+        textfont_size=10,
+        hovertemplate='%{x}<br>%{y:,} cases (%{text})<extra></extra>'
+    ))
+    fig_load.update_layout(**chart_layout(
+        height=420,
+        title=f"Case Volume by Court Hall — Top {top_n} halls + rest<br>"
+              f"<sup>Court 200 alone handles "
+              f"{load[load['court_label']=='Court 200']['pct'].values[0] if 'Court 200' in load['court_label'].values else '~40'}% "
+              f"of all resolved cases in this dataset</sup>",
+        xaxis_title="Court Hall",
+        yaxis_title="Resolved Cases",
+        xaxis_tickangle=-45,
+        yaxis_range=[0, load_display['n_cases'].max() * 1.18],
+        margin=dict(l=20, r=20, t=80, b=80)
+    ))
+    fig_load.update_xaxes(showgrid=False)
+    fig_load.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
+    st.plotly_chart(fig_load, width='stretch')
     
     st.markdown(f"""<div class="insight">
-    📌 Among {len(cs)} court halls with 50+ resolved cases, the fastest median was
-    <strong>{vmin} days</strong> and the slowest <strong>{vmax} days</strong> —
-    a <strong>{ratio}× difference</strong>. What drives this variation — case mix,
-    complexity, bench composition, or other factors — is not visible in this dataset.
+    📌 The caseload is heavily concentrated: Court 200 alone accounts for a large
+    plurality of all resolved cases. Most other halls handle far smaller volumes.
+    This matters when reading hall-by-hall resolution times — a court handling 8,000+
+    cases operates very differently from one handling 50.
     </div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # ── Chart G1: Sorted bar — all qualifying halls ───────────────────────────────
-    st.markdown("#### Median resolution time by court hall")
-    st.caption(f"Halls with 50+ resolved cases · Sorted fastest → slowest · n={len(cs)} halls")
+    # ── Chart G1: Sorted bar — median resolution per hall (50+ cases) ─────────────
+    st.markdown(f"#### Median resolution time across {len(cs)} halls (50+ cases each)")
     
     fig_bar = px.bar(
         cs, x='court_label', y='median_days',
         color='median_days',
         color_continuous_scale=[TEAL, AMBER, CORAL, '#c0392b'],
         text=cs['median_days'].apply(lambda x: f"{int(x)}d"),
-        labels={'court_label': 'Court Hall', 'median_days': 'Median Days'}
+        labels={'court_label': '', 'median_days': 'Median Days'}
     )
-    fig_bar.update_traces(textposition='outside', textfont_size=10)
+    fig_bar.update_traces(textposition='outside', textfont_size=9)
     fig_bar.update_layout(**chart_layout(
         height=500, coloraxis_showscale=False,
-        xaxis_title="Court Hall Number",
+        xaxis_title="",
         yaxis_title="Median Days to Resolution",
         xaxis_tickangle=-45,
         yaxis_range=[0, cs['median_days'].max() * 1.2],
-        margin=dict(l=20, r=20, t=50, b=80)
+        margin=dict(l=20, r=20, t=50, b=90)
     ))
     fig_bar.update_xaxes(showgrid=False)
     fig_bar.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
     st.plotly_chart(fig_bar, width='stretch')
     
+    st.markdown(f"""<div class="insight">
+    📌 Across {len(cs)} halls with 50+ resolved cases, median resolution ranges from
+    <strong>{vmin} days</strong> to <strong>{vmax} days</strong> — a {ratio}× spread.
+    </div>""", unsafe_allow_html=True)
+    
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # ── Chart G2: Scatter — caseload vs resolution ────────────────────────────────
-    st.markdown("#### Is caseload associated with resolution time?")
+    # ── Chart G2: Caseload vs resolution time ─────────────────────────────────────
+    st.markdown("#### Does handling more cases relate to faster or slower resolution?")
     
     corr = round(float(np.corrcoef(cs['n_cases'], cs['median_days'])[0, 1]), 2)
     
@@ -621,7 +672,7 @@ with tab3:
         color='median_days',
         color_continuous_scale=[TEAL, AMBER, CORAL, '#c0392b'],
         hover_name='court_label',
-        hover_data={'court_hall': True, 'n_cases': ':.0f', 'median_days': ':.0f'},
+        hover_data={'n_cases': ':.0f', 'median_days': ':.0f'},
         labels={'n_cases': 'Cases Handled', 'median_days': 'Median Days'}
     )
     x_line = np.linspace(cs['n_cases'].min(), cs['n_cases'].max(), 100)
@@ -634,51 +685,50 @@ with tab3:
     ))
     fig_sc.update_layout(**chart_layout(
         height=460, coloraxis_showscale=False, showlegend=True,
-        title=f"Caseload vs. Median Resolution Time (Pearson r = {corr})<br>"
-              f"<sup>Each bubble = one court hall · Bubble size ∝ case volume</sup>",
+        title=f"Caseload vs. Median Resolution Time  (r = {corr})",
         xaxis_title='Cases Handled',
         yaxis_title='Median Days to Resolution',
         legend=dict(x=0.01, y=0.98),
-        margin=dict(l=20, r=20, t=80, b=25)
+        margin=dict(l=20, r=20, t=60, b=25)
     ))
     fig_sc.update_xaxes(showgrid=True, gridcolor='#f0f0f0')
     fig_sc.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
     st.plotly_chart(fig_sc, width='stretch')
     
     st.markdown(f"""<div class="insight">
-    📌 Pearson correlation between caseload and median resolution time: <strong>{corr}</strong>.
-    A linear trend line is shown for reference. Individual halls vary widely around it —
-    caseload volume alone does not explain the spread.
+    📌 Pearson r = {corr}. Each bubble is one court hall; size reflects case volume.
+    The dotted line is a linear trend. Halls cluster with wide spread around it —
+    volume alone does not explain resolution time.
     </div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
     # ── Chart G3: Box plot — spread by filing year ────────────────────────────────
-    st.markdown("#### How wide is the spread of resolution times within each filing year?")
+    st.markdown("#### Spread of resolution times within each filing year")
     
     fig_box = px.box(
         dff, x='filing_year', y='disposal_days',
         color='filing_year',
         color_discrete_sequence=[TEAL, BLUE, AMBER, CORAL, '#c0392b'],
         labels={'disposal_days': 'Days to Resolution', 'filing_year': 'Filing Year'},
-        title="Spread of Resolution Times by Filing Year<br>"
+        title="Resolution Time Spread by Filing Year<br>"
               "<sup>Box = middle 50% · Line = median · Whiskers = 1.5× IQR</sup>",
         points=False
     )
     fig_box.update_layout(**chart_layout(
-        height=430,
+        height=420,
         xaxis_title="Filing Year",
         yaxis_title="Days to Resolution",
-        margin=dict(l=20, r=20, t=80, b=25)
+        margin=dict(l=20, r=20, t=70, b=25)
     ))
     fig_box.update_xaxes(showgrid=False, type='category')
     fig_box.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
     st.plotly_chart(fig_box, width='stretch')
     
     st.markdown("""<div class="insight">
-    📌 The box height (IQR) shrinks across years — resolved cases in later cohorts
-    are more tightly clustered in time. Whether that reflects court capacity, case mix
-    shifts, or other factors is not visible in this data.
+    📌 The box height (IQR) narrows across years — resolved cases in later cohorts
+    are more tightly clustered around the median. 2015 cases had the widest spread:
+    some finished quickly, others took the full 6-year window before this snapshot.
     </div>""", unsafe_allow_html=True)
 
     pass
