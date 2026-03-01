@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║  JUSTICE BY THE NUMBERS — Karnataka High Court                          ║
-# ║  A Lawgorithm Initiative  |  app.py  |  v2                              ║
+# ║  A Lawgorithm Initiative  |  app.py  |  v3                              ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -174,16 +174,14 @@ st.markdown("""
 <div class="caveat">
   ⚠️ <strong>What this data is — and is not:</strong>
   This dashboard shows only <strong>resolved (disposed) cases</strong>.
-  Cases still pending as of January 2021 are not included — so this is not a picture
-  of how fast the court resolves cases overall.
+  Cases still pending as of January 2021 are not included.
   Outcome details are recorded for only <strong>26% of cases</strong>.
-  Court-level variation reflects differences in caseload, bench composition, and case
-  complexity — not individual performance. All insights should be read as benchmarks
-  from completed cases, not as predictions or assessments.
+  Court-level variation is visible in the data — what drives it is not
+  determinable from this dataset alone.
 </div>
 """, unsafe_allow_html=True)
 
-# KPI calculations — all from filtered data
+# KPI calculations
 med   = int(dff['disposal_days'].median())
 p25   = int(dff['disposal_days'].quantile(0.25))
 p75   = int(dff['disposal_days'].quantile(0.75))
@@ -219,6 +217,7 @@ with k4:
 st.markdown("<br>", unsafe_allow_html=True)
 
 
+
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║  BLOCK I — Tab shell (wraps E/F/G/H) + Footer                          ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
@@ -234,8 +233,6 @@ with tab1:
     # ╔══════════════════════════════════════════════════════════════════════════╗
     # ║  BLOCK E — Tab 1: How Long Does It Take?                                ║
     # ╚══════════════════════════════════════════════════════════════════════════╝
-    
-    # NOTE: This block must be inside   with tab1:   — see BLOCK H for tab setup
     
     st.markdown('<p class="stab-title">How long did resolved appeals take?</p>',
                 unsafe_allow_html=True)
@@ -275,21 +272,32 @@ with tab1:
     📌 <strong>Reading this chart:</strong>
     Each bar groups cases that took roughly the same number of days to resolve.
     The median ({med} days, ~{round(med/365.25,1)} years) is the middle value —
-    half resolved faster, half slower. The long right tail shows a smaller but real
-    group that took 4–6 years. The peak of the curve is where most cases cluster.
+    half resolved faster, half slower. The long right tail shows a smaller group
+    that took 4–6 years.
     </div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Chart E2 — Speed tiers
     st.markdown("#### How do the numbers break into plain categories?")
-    tier_order = ["Fast (under 1 year)","Medium (1–2 years)","Slow (2–3 years)","Very Slow (3+ years)"]
-    tier_vals  = (
+    
+    tier_order = [
+        "Fast (under 1 year)", "Medium (1–2 years)",
+        "Slow (2–3 years)",    "Very Slow (3+ years)"
+    ]
+    tier_vals = (
         dff['speed_tier'].value_counts()
         .reindex(tier_order).fillna(0).astype(int).reset_index()
     )
     tier_vals.columns = ['tier', 'count']
     tier_vals['pct'] = (100 * tier_vals['count'] / len(dff)).round(1)
+    
+    # Computed variables — used in insight text
+    p_fast_e   = tier_vals.loc[tier_vals['tier']=="Fast (under 1 year)",   'pct'].values[0]
+    p_medium_e = tier_vals.loc[tier_vals['tier']=="Medium (1–2 years)",    'pct'].values[0]
+    p_slow_e   = tier_vals.loc[tier_vals['tier']=="Slow (2–3 years)",      'pct'].values[0]
+    p_vslow_e  = tier_vals.loc[tier_vals['tier']=="Very Slow (3+ years)",  'pct'].values[0]
+    p_within2  = round(p_fast_e + p_medium_e, 1)
     
     fig_tiers = px.bar(
         tier_vals, x='tier', y='count',
@@ -311,18 +319,18 @@ with tab1:
     st.plotly_chart(fig_tiers, width='stretch')
     
     st.markdown(f"""<div class="insight">
-    📌 <strong>What this means:</strong>
-    Among resolved cases — {pfast}% were done within a year, and 35.1% took 1–2 years.
-    Nearly two-thirds finished within 2 years. The remaining third split between
-    2–3 years (17.7%) and over 3 years ({pslow}%).
-    This is the population of completed cases only — cases still pending are not counted.
+    📌 {p_fast_e}% resolved within 1 year, {p_medium_e}% in 1–2 years —
+    {p_within2}% of resolved cases finished within 2 years.
+    {p_slow_e}% took 2–3 years and {p_vslow_e}% took more than 3 years.
+    These figures cover resolved cases only — pending cases are not counted.
     </div>""", unsafe_allow_html=True)
+
 
     pass
 
 with tab2:
     # ╔══════════════════════════════════════════════════════════════════════════╗
-    # ║  BLOCK F — Tab 2: Trends Over Time  (v4)                                ║
+    # ║  BLOCK F — Tab 2: Trends Over Time  (v5)                                ║
     # ╚══════════════════════════════════════════════════════════════════════════╝
     
     st.markdown('<p class="stab-title">How has resolution time changed across filing years?</p>',
@@ -335,12 +343,17 @@ with tab2:
     shown on each chart.
     </div>""", unsafe_allow_html=True)
     
-    # ── Build cohort-level speed breakdown ────────────────────────────────────────
+    # ── Computed observation windows — not hardcoded ──────────────────────────────
+    obs_cutoff  = pd.Timestamp('2021-01-09')
+    obs_windows = {
+        int(yr): (obs_cutoff - pd.Timestamp(f'{int(yr)}-01-01')).days
+        for yr in sorted(dff['filing_year'].unique())
+    }
+    
     tier_order = [
         "Fast (under 1 year)", "Medium (1–2 years)",
         "Slow (2–3 years)",    "Very Slow (3+ years)"
     ]
-    obs_windows = {2015: 2200, 2016: 1835, 2017: 1469, 2018: 1104, 2019: 739}
     
     cohort_tiers = (
         dff.groupby(['filing_year', 'speed_tier'])
@@ -353,6 +366,29 @@ with tab2:
         cohort_tiers['speed_tier'], categories=tier_order, ordered=True
     )
     cohort_tiers = cohort_tiers.sort_values(['filing_year', 'speed_tier'])
+    
+    # Precompute values for insight texts
+    yr_min = int(cf['filing_year'].min())
+    yr_max = int(cf['filing_year'].max())
+    fast_min = cohort_tiers.loc[
+        (cohort_tiers['filing_year']==yr_min) &
+        (cohort_tiers['speed_tier']=="Fast (under 1 year)"), 'pct'].values[0]
+    fast_max = cohort_tiers.loc[
+        (cohort_tiers['filing_year']==yr_max) &
+        (cohort_tiers['speed_tier']=="Fast (under 1 year)"), 'pct'].values[0]
+    vslow_min = cohort_tiers.loc[
+        (cohort_tiers['filing_year']==yr_min) &
+        (cohort_tiers['speed_tier']=="Very Slow (3+ years)"), 'pct'].values[0]
+    vslow_max = cohort_tiers.loc[
+        (cohort_tiers['filing_year']==yr_max) &
+        (cohort_tiers['speed_tier']=="Very Slow (3+ years)"), 'pct'].values[0]
+    
+    med_min   = int(cf.loc[cf['filing_year']==yr_min, 'median_days'].values[0])
+    med_max   = int(cf.loc[cf['filing_year']==yr_max, 'median_days'].values[0])
+    iqr_min   = int(cf.loc[cf['filing_year']==yr_min, 'p75_days'].values[0] -
+                    cf.loc[cf['filing_year']==yr_min, 'p25_days'].values[0])
+    iqr_max   = int(cf.loc[cf['filing_year']==yr_max, 'p75_days'].values[0] -
+                    cf.loc[cf['filing_year']==yr_max, 'p25_days'].values[0])
     
     # ── Chart F1: Stacked distribution ────────────────────────────────────────────
     st.markdown("#### How are resolved cases distributed across speed categories?")
@@ -374,7 +410,6 @@ with tab2:
     )
     fig_stack.update_traces(textposition='inside', insidetextanchor='middle', textfont_size=11)
     
-    # Observation window + n as annotation above each bar
     for yr, window in obs_windows.items():
         yr_data = totals[totals['filing_year'] == yr]
         if not yr_data.empty:
@@ -401,10 +436,9 @@ with tab2:
     fig_stack.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
     st.plotly_chart(fig_stack, width='stretch')
     
-    st.markdown("""<div class="insight">
-    📌 The Fast (under 1 year) share rises from 22.7% in 2015 to 59.4% in 2019.
-    The Very Slow (3+ years) share falls from 31.0% in 2015 to near-zero in 2018–2019.
-    The Medium (1–2 years) share is the most consistent across years, ranging 29–52%.
+    st.markdown(f"""<div class="insight">
+    📌 The Fast (under 1 year) share rises from {fast_min}% in {yr_min} to {fast_max}% in {yr_max}.
+    The Very Slow (3+ years) share falls from {vslow_min}% in {yr_min} to {vslow_max}% in {yr_max}.
     </div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
@@ -453,11 +487,10 @@ with tab2:
     fig_med.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
     st.plotly_chart(fig_med, width='stretch')
     
-    st.markdown("""<div class="insight">
-    📌 Median falls from 703 days (2015) to 319 days (2019).
-    The IQR — the gap between the fastest and slowest quartile — also narrows:
-    879 days in 2015 down to 346 days in 2019. Later cohorts' resolved cases
-    are not just faster on median — they are more consistently timed.
+    st.markdown(f"""<div class="insight">
+    📌 Median falls from {med_min} days ({yr_min}) to {med_max} days ({yr_max}).
+    The IQR also narrows: {iqr_min} days in {yr_min} down to {iqr_max} days in {yr_max} —
+    resolved cases in later cohorts are more consistently timed, not just faster on median.
     </div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
@@ -497,10 +530,9 @@ with tab2:
     ))
     st.plotly_chart(fig_heat, width='stretch')
     
-    st.markdown("""<div class="insight">
-    📌 2015 cases resolved across all six years (2015–2020), with no single year dominant.
-    2018 and 2019 cases resolved heavily in 2019–2020 — the same two years where
-    disposal volumes across all cohorts peak (see chart below).
+    st.markdown(f"""<div class="insight">
+    📌 {yr_min} cases resolved spread across all available years with no single year dominant.
+    {yr_max} cases resolved heavily in the final two years before the January 2021 snapshot.
     </div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
@@ -528,6 +560,7 @@ with tab2:
     fig_disp.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
     st.plotly_chart(fig_disp, width='stretch')
     st.caption("2021 captures only the first week of January.")
+
 
     pass
 
@@ -622,11 +655,17 @@ with tab3:
     fig_load.update_yaxes(showgrid=True, gridcolor='#f0f0f0')
     st.plotly_chart(fig_load, width='stretch')
     
+    court200_n    = int(dff[dff['court_number'] == 200].shape[0])
+    court200_pct  = round(100 * court200_n / len(dff), 1)
+    small_n       = int((dff.groupby('court_number').size() < 50).sum())
+    small_case_pct= round(100 * dff.groupby('court_number').size()[
+                        dff.groupby('court_number').size() < 50].sum() / len(dff), 1)
+    total_halls   = dff['court_number'].nunique()
+    
     st.markdown(f"""<div class="insight">
-    📌 The caseload is heavily concentrated: Court 200 alone accounts for a large
-    plurality of all resolved cases. Most other halls handle far smaller volumes.
-    This matters when reading hall-by-hall resolution times — a court handling 8,000+
-    cases operates very differently from one handling 50.
+    📌 Court 200 handled {court200_n:,} cases — {court200_pct}% of all resolved cases
+    in this dataset. {small_n} of {total_halls} halls had fewer than 50 resolved cases
+    and together account for {small_case_pct}% of cases.
     </div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
@@ -735,64 +774,86 @@ with tab3:
 
 with tab4:
     # ╔══════════════════════════════════════════════════════════════════════════╗
-    # ║  BLOCK H — Tab 4: Outcomes & Patterns                                   ║
+    # ║  BLOCK H — Tab 4: Outcomes & Patterns  (v2)                             ║
     # ╚══════════════════════════════════════════════════════════════════════════╝
     
     st.markdown('<p class="stab-title">What happened when cases were resolved?</p>',
                 unsafe_allow_html=True)
     st.markdown(
-        '<p class="stab-sub">Outcome records and filing seasonality patterns.</p>',
+        '<p class="stab-sub">Outcome records and filing volume patterns.</p>',
         unsafe_allow_html=True)
     
-    st.markdown("""<div class="warn">
-    ⚠️ <strong>Outcome data is recorded for only 26.3% of cases (5,420 of 20,646).</strong>
-    Charts below are illustrative only. The 73.7% with no outcome is a data quality gap
-    in the NJDG source — not something this dashboard fills or estimates.
-    Do not treat percentages here as representative of all appeals.
+    outcome_total   = dff['outcome_bucket'].notna().sum()
+    outcome_missing = (dff['outcome_bucket'] == 'Data Not Available').sum()
+    outcome_known_n = outcome_total - outcome_missing
+    outcome_pct     = round(100 * outcome_known_n / len(dff), 1)
+    
+    st.markdown(f"""<div class="warn">
+    ⚠️ Outcome data is recorded for <strong>{outcome_known_n:,} of {len(dff):,} cases
+    ({outcome_pct}%)</strong>. The remaining {100-outcome_pct:.1f}% have no outcome
+    in the source data. Charts below cover the {outcome_known_n:,} cases with a
+    recorded outcome only.
     </div>""", unsafe_allow_html=True)
     
-    # Chart H1 — Outcome bar (known outcomes only)
+    # ── Chart H1 — Outcome bar (known outcomes only) ──────────────────────────────
     outcome_known = dff[dff['outcome_bucket'] != 'Data Not Available'].copy()
+    
+    # Keep Dismissed for Non-Prosecution separate — it is procedurally distinct
+    # from a contested dismissal on merits
     oc = outcome_known['outcome_bucket'].value_counts().reset_index()
     oc.columns = ['outcome', 'count']
     oc['pct'] = (100 * oc['count'] / len(outcome_known)).round(1)
+    
+    # Pull key numbers dynamically for insight text
+    def _n(label):
+        row = oc[oc['outcome'] == label]
+        return int(row['count'].values[0]) if not row.empty else 0
+    
+    n_partly    = _n('Partly Allowed')
+    n_dismissed = _n('Dismissed')               # on merits
+    n_dnp       = _n('Dismissed for Non-Prosecution')
+    n_allowed   = _n('Allowed')
+    n_remanded  = _n('Allowed and Remanded')
+    n_disposed  = _n('Disposed')                # manner not recorded
+    n_rejected  = _n('Rejected')
     
     fig_oc = px.bar(
         oc.sort_values('count'),
         x='count', y='outcome', orientation='h',
         color='outcome',
-        color_discrete_sequence=[TEAL, BLUE, AMBER, CORAL, '#8e44ad', NAVY],
+        color_discrete_sequence=[TEAL, BLUE, AMBER, CORAL, '#8e44ad', NAVY, '#95a5a6'],
         text=oc.sort_values('count')['pct'].apply(lambda x: f"{x}%"),
         labels={'count': 'Number of Cases', 'outcome': ''},
         title=(
-            f"Case Outcomes — {len(outcome_known):,} cases with recorded outcomes<br>"
-            f"<sup>Remaining {len(dff)-len(outcome_known):,} cases: no outcome in source data</sup>"
+            f"Case Outcomes — {outcome_known_n:,} cases with recorded outcomes<br>"
+            f"<sup>Remaining {len(dff)-outcome_known_n:,} cases: no outcome in source data</sup>"
         )
     )
     fig_oc.update_traces(textposition='outside', textfont_size=12)
     fig_oc.update_layout(**chart_layout(
-        height=440,
+        height=460,
         xaxis_title="Number of Cases", yaxis_title="",
-        xaxis_range=[0, oc['count'].max() * 1.3],
+        xaxis_range=[0, oc['count'].max() * 1.35],
         margin=dict(l=20, r=70, t=80, b=25)
     ))
     fig_oc.update_xaxes(showgrid=True, gridcolor='#f0f0f0')
     fig_oc.update_yaxes(showgrid=False)
     st.plotly_chart(fig_oc, width='stretch')
     
-    st.markdown("""<div class="insight">
-    📌 <strong>Reading outcomes carefully:</strong>
-    "Disposed — Manner Not Recorded" is a data quality issue in the source — the case was
-    closed but how it closed was not entered. Of cases with a substantive outcome:
-    Partly Allowed (1,258) and Dismissed/Rejected (1,270) are the two largest categories,
-    roughly equal. Fully Allowed (113) is a small fraction.
-    "Allowed & Sent Back" means the High Court found merit but referred the matter
-    back to the lower court for fresh consideration — not a final conclusion.
+    st.markdown(f"""<div class="insight">
+    📌 Among the {outcome_known_n:,} cases with a recorded outcome:
+    <strong>"Disposed — Manner Not Recorded" ({n_disposed:,})</strong> is the largest category —
+    the case was closed but the how was not entered in NJDG.
+    Of substantive outcomes: Partly Allowed ({n_partly:,}) and Dismissed ({n_dismissed:,})
+    are the two largest. "Dismissed for Non-Prosecution" ({n_dnp:,}) is a distinct category —
+    the case was dropped because the petitioner did not pursue it, not because it was
+    decided against them on merits. "Allowed and Remanded" ({n_remanded:,}) means the HC
+    found grounds for reconsideration and returned the case to the lower court.
     </div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Chart H2 — Contested vs uncontested outcomes
+    # ── Chart H2 — Contested vs uncontested outcomes ─────────────────────────────
     st.markdown("#### Contested vs. Uncontested — in the data we have")
     cont_oc = (
         dff[(dff['contested_label'] != 'Not Recorded') &
@@ -825,13 +886,20 @@ with tab4:
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Chart H3 — Monthly filing heatmap
-    st.markdown("#### When are cases filed? (all 20,646 cases)")
+    # ── Chart H3 — Monthly filing heatmap ────────────────────────────────────────
+    st.markdown("#### When are cases filed? (all cases)")
     monthly = dff.groupby(['filing_year', 'filing_month']).size().reset_index(name='count')
-    pivot   = monthly.pivot(index='filing_year', columns='filing_month', values='count').fillna(0)
-    mnames  = {1:'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',6:'Jun',
-               7:'Jul',8:'Aug',9:'Sep',10:'Oct',11:'Nov',12:'Dec'}
+    pivot   = monthly.pivot(
+        index='filing_year', columns='filing_month', values='count'
+    ).fillna(0)
+    mnames = {1:'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',6:'Jun',
+              7:'Jul',8:'Aug',9:'Sep',10:'Oct',11:'Nov',12:'Dec'}
     pivot.columns = [mnames.get(c, str(c)) for c in pivot.columns]
+    
+    # Dynamic high/low months for insight
+    monthly_totals = dff.groupby('filing_month').size()
+    month_high = mnames[int(monthly_totals.idxmax())]
+    month_low  = mnames[int(monthly_totals.idxmin())]
     
     fig_heat = px.imshow(
         pivot, aspect='auto',
@@ -839,7 +907,7 @@ with tab4:
         labels=dict(x="Month", y="Filing Year", color="Cases Filed"),
         title=(
             "Monthly Filing Volume by Year<br>"
-            "<sup>Darker = more filings · Based on all resolved cases in this dataset</sup>"
+            "<sup>Darker = more filings</sup>"
         )
     )
     fig_heat.update_layout(**chart_layout(
@@ -848,12 +916,10 @@ with tab4:
     ))
     st.plotly_chart(fig_heat, width='stretch')
     
-    st.markdown("""<div class="insight">
-    📌 <strong>Seasonality:</strong>
-    Filing volumes vary by month, often reflecting court vacation periods
-    (summer, Diwali, Christmas breaks). Peaks on either side of a break can indicate
-    filings compressed before or after vacations. These patterns are useful context for
-    litigants timing their filings and for administrators planning resources.
+    st.markdown(f"""<div class="insight">
+    📌 {month_high} is consistently the highest-volume filing month across years.
+    {month_low} is the lowest. Filing volumes vary across months — the pattern
+    is visible in the chart above.
     </div>""", unsafe_allow_html=True)
 
     pass
@@ -881,8 +947,8 @@ st.markdown(f"""
   completed cases, not current court performance or future case timelines.<br><br>
 
   <strong>Court variation:</strong> Court hall numbers are NJDG identifiers.
-  Variation in resolution times reflects case complexity, bench composition,
-  and workload — not individual performance.<br><br>
+  Court-level variation is visible in the data. What drives it is not
+determinable from this dataset alone.<br><br>
 
   🔗 <a href="https://njdg.ecourts.gov.in" target="_blank">NJDG Live Portal</a> &nbsp;·&nbsp;
   🔗 <a href="https://ecourts.gov.in" target="_blank">eCourts — Track your case</a> &nbsp;·&nbsp;
