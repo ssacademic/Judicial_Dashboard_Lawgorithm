@@ -376,12 +376,17 @@ with tab2:
     fast_max = cohort_tiers.loc[
         (cohort_tiers['filing_year']==yr_max) &
         (cohort_tiers['speed_tier']=="Fast (under 1 year)"), 'pct'].values[0]
-    vslow_min = cohort_tiers.loc[
-        (cohort_tiers['filing_year']==yr_min) &
-        (cohort_tiers['speed_tier']=="Very Slow (3+ years)"), 'pct'].values[0]
-    vslow_max = cohort_tiers.loc[
-        (cohort_tiers['filing_year']==yr_max) &
-        (cohort_tiers['speed_tier']=="Very Slow (3+ years)"), 'pct'].values[0]
+    
+    def _get_pct(year, tier):
+        row = cohort_tiers.loc[
+            (cohort_tiers['filing_year']==year) &
+            (cohort_tiers['speed_tier']==tier), 'pct']
+        return round(float(row.values[0]), 1) if not row.empty else 0.0
+    
+    fast_min  = _get_pct(yr_min, "Fast (under 1 year)")
+    fast_max  = _get_pct(yr_max, "Fast (under 1 year)")
+    vslow_min = _get_pct(yr_min, "Very Slow (3+ years)")
+    vslow_max = _get_pct(yr_max, "Very Slow (3+ years)")
     
     med_min   = int(cf.loc[cf['filing_year']==yr_min, 'median_days'].values[0])
     med_max   = int(cf.loc[cf['filing_year']==yr_max, 'median_days'].values[0])
